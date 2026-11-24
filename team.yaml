@@ -1,0 +1,504 @@
+version: 1.0.0
+name: sdlc-agent-team
+monitoring:
+  flow_state: docs/flow.json
+  refresh_seconds: 1.5
+
+mode_base_stages: [REQ, G1, DESIGN, G2, BUILD, G3, TEST, G4, RELEASE, G5, OPS, G6, RETRO, G7]
+
+modes:
+  # 按判定优先级排列。
+  hotfix:
+    label: 热修
+    detect: "线上故障需要立即修复"
+    stages: [H0, H1, H2, G3, H3, G4, H4, G5, H5]
+  quick:
+    label: 轻量变更
+    detect: "已有项目只改局部行为，且权限、接口契约、数据、依赖、设计决策、性能指标和部署均不受影响"
+    stages: [BUILD, G3, TEST, G4]
+  iteration:
+    label: 迭代
+    detect: "从复盘或需求池开始，且本次变更可复用已批准的项目章程和现状基线"
+    prefix_stages: []
+  brownfield:
+    label: 二次开发
+    detect: "修改已有系统，需要核对现有行为、接口契约或数据"
+    prefix_stages: [G0B, G0]
+  new:
+    label: 新建
+    detect: "首次交付，且无需沿用已有系统的行为、接口契约或数据"
+    prefix_stages: [G0]
+
+profiles:
+  standard:
+    label: 标准
+  small:
+    label: 小
+    owner_aliases: frontend=backend,designer;functional-tester=performance-tester
+    skip_artifacts: [docs/04-perf-report.md, docs/05-runbook.md, docs/manual/]
+    replace_artifacts: docs/02-ux-flow.md=docs/02-ux.md;docs/02-ui-spec.md=docs/02-ux.md
+    extra_sections: "docs/04-test-report.md=docs/04-perf-report.md#性能结论;docs/05-release.md=docs/05-runbook.md#运行手册;docs/08-handover.md=docs/manual/#使用说明"
+
+stages:
+  - id: 0B
+    label: 现状基线
+    work: 现有系统扫描
+    owners: [architect]
+    gate: G0B
+  - id: 1
+    label: 立项/变更立项
+    work: 项目章程或变更说明、计划
+    owners: [analyst]
+    gate: G0
+  - id: 2
+    label: 需求分析
+    work: 需求规格、跟踪矩阵
+    owners: [analyst]
+    gate: G1
+  - id: 3
+    label: 方案设计
+    work: 架构、接口、体验、威胁模型
+    owners: [architect, designer, security]
+    gate: G2
+  - id: 4
+    label: 编码开发
+    work: 代码、单元测试
+    owners: [frontend, backend]
+    gate: G3
+  - id: 5
+    label: 测试验证
+    work: 功能、性能、安全测试
+    owners: [functional-tester, performance-tester, security]
+    gate: G4
+  - id: 6
+    label: 验证上线
+    work: 验收、链路验证、预发部署（不发布生产）
+    owners: [releaser]
+    gate: G5
+  - id: 7
+    label: 运行维护
+    work: 验证环境监控、故障、容量
+    owners: [releaser]
+    gate: G6
+  - id: 8
+    label: 复盘迭代
+    work: 验证上线复盘、改进项、归档
+    owners: [chronicler]
+    gate: G7
+
+hotfix_stages:
+  - id: H0
+    label: 定级
+    work: 复现、定级、评估影响并登记热修安全影响
+    owners: [functional-tester, orchestrator]
+  - id: H1
+    label: 止损
+    work: 在授权的验证环境演练回滚或降级，记录适用的人工处置结论
+    owners: [releaser]
+  - id: H2
+    label: 最小修复
+    work: 最小改动、补测试
+    owners: [frontend, backend]
+  - id: H3
+    label: 回归
+    work: 功能回归。有安全影响时由 security 复核
+    owners: [functional-tester, security]
+  - id: H4
+    label: 验证发布
+    work: 验证环境发布、观察
+    owners: [releaser]
+  - id: H5
+    label: 补记录
+    work: 补 CR、测试用例和复盘记录，汇总热修记录并核对结项
+    owners: [chronicler, releaser, orchestrator]
+
+hotfix_checks:
+  - 故障级别已判定（P0-P3）
+  - H0 已判定热修安全影响。有安全影响时 G4 已核对安全复核结论
+  - 只改导致故障的最小范围
+  - G3、G4、G5 已按本次变更编号复核通过
+  - H1 已记录回滚路径和止损结论
+  - H4 前用户已明确同意验证发布
+  - H5 已补齐 CR、测试用例和复盘记录。总控已核对热修记录
+
+rules:
+  rework_limit: 2
+  # G5 检查发布计划中的批准记录。G0、G7 检查状态板中的人工确认。
+  human_approval_required: [G5]
+
+rule_summary:
+  - 工件写入文件。交接消息填写任务信息、文件路径、状态和结论。
+  - 工件作者与门禁评审人必须分开。
+  - 总控负责模式判定、任务派发、门禁核对和状态记录。各专家负责交付本角色的工件。
+  - G5 由人批准。验证上线限于验证环境。
+  - G0 和 G7 的人工确认写入状态板。G5 的批准人、时间、范围和原文写入 docs/05-release.md。
+
+agents:
+  - id: orchestrator
+    title: 总控
+    card: team/00-orchestrator.md
+    summary: 判定模式，分派任务，核对门禁并维护状态板。
+    handoff: all
+    stage: all
+    stage_label: 全流程；模式选择；热修 H0、H5
+    hotfix_stage: [H0, H5]
+    gate: [G0, G0B, G6, G7]
+    gate_label: G0、G7 配合人工确认；G0B 就绪检查；G6 门负责人
+    tool_filter: 读写状态文件、执行、搜索（拒绝改业务代码）
+  - id: analyst
+    title: 需求专家
+    card: team/01-analyst.md
+    summary: 编写项目章程、需求规格和可验证的验收标准。
+    handoff: [orchestrator, architect]
+    stage: [1, 2]
+    stage_label: 1 立项/变更、2 需求
+    gate: [G0, G1]
+    gate_label: G0、G1 交付
+    tool_filter: 读、写、搜索
+  - id: architect
+    title: 设计专家
+    card: team/02-architect.md
+    summary: 记录现状基线，编写影响分析、架构方案和接口契约。
+    handoff: [analyst, reviewer, frontend, backend]
+    stage: [0B, 3]
+    stage_label: 0B 现状基线、3 方案设计
+    gate: [G0B, G2]
+    gate_label: G0B、G2 交付
+    tool_filter: 读、写、搜索、执行（仅构建与测试）
+  - id: designer
+    title: 体验设计
+    card: team/11-designer.md
+    summary: 设计任务流、页面状态、界面组件和文案。
+    handoff: [reviewer, frontend]
+    stage: [3]
+    stage_label: 3 方案设计
+    gate: [G2]
+    gate_label: G2 交付
+    tool_filter: 读、写、搜索
+  - id: frontend
+    title: 前端开发
+    card: team/03-frontend.md
+    summary: 实现界面和交互，验证前端构建和接口联调。
+    handoff: [reviewer, functional-tester]
+    stage: [4]
+    stage_label: 4 编码开发；热修 H2
+    hotfix_stage: [H2]
+    gate: [G3]
+    gate_label: G3 交付
+    tool_filter: 全部
+  - id: backend
+    title: 后端开发
+    card: team/04-backend.md
+    summary: 实现服务、接口和数据变更，验证后端构建和迁移。
+    handoff: [reviewer, functional-tester, performance-tester]
+    stage: [4]
+    stage_label: 4 编码开发；热修 H2
+    hotfix_stage: [H2]
+    gate: [G3]
+    gate_label: G3 交付
+    tool_filter: 全部
+  - id: functional-tester
+    title: 功能测试
+    card: team/05-functional-tester.md
+    summary: 设计用例，验证功能和回归，记录缺陷与准出建议。
+    handoff: [orchestrator, reviewer, releaser]
+    stage: [5]
+    stage_label: 5 测试验证（含回归基线）；热修 H0、H3
+    hotfix_stage: [H0, H3]
+    gate: [G4]
+    gate_label: G4 交付
+    tool_filter: 读、写测试报告、执行、搜索（拒绝写源码）
+  - id: performance-tester
+    title: 性能测试
+    card: team/06-performance-tester.md
+    summary: 验证响应时间、吞吐量和容量，记录性能结果与瓶颈。
+    handoff: [functional-tester, reviewer, backend, releaser]
+    stage: [5]
+    stage_label: 5 测试验证
+    gate: [G4]
+    gate_label: G4 交付
+    tool_filter: 读、写性能报告、执行、搜索（拒绝写源码）
+  - id: security
+    title: 安全专家
+    card: team/07-security.md
+    summary: 编写威胁模型，完成防御性代码、依赖和配置审查。
+    handoff: [architect, frontend, backend, reviewer]
+    stage: [3, 4, 5]
+    stage_label: 3、4、5，热修 H3（有安全影响）
+    hotfix_stage: [H3]
+    gate: []
+    gate_label: 安全工件交付
+    tool_filter: 读、写安全报告、搜索（报告限本任务）
+  - id: reviewer
+    title: 独立评审
+    card: team/08-reviewer.md
+    summary: 独立核对现状基线、需求、设计、代码和测试报告，记录门禁结论。
+    handoff: [orchestrator]
+    stage: [0B, 1, 2, 3, 4, 5]
+    stage_label: 0B-5；热修 G3、G4 评审
+    hotfix_stage: [G3, G4]
+    gate: [G0B, G1, G2, G3, G4]
+    gate_label: G0B、G1 至 G4 门负责人
+    tool_filter: 读、写评审报告、搜索（拒绝改工件）
+  - id: releaser
+    title: 发布运维
+    card: team/09-releaser.md
+    summary: 准备验证上线、回滚和运行手册，记录验证环境的运行情况。
+    handoff: [orchestrator, chronicler]
+    stage: [6, 7]
+    stage_label: 6 验证上线、7 运行；热修 H1、H4-H5
+    hotfix_stage: [H1, H4, H5]
+    gate: [G5, G6]
+    gate_label: G5、G6 交付
+    tool_filter: 读、写、执行
+  - id: chronicler
+    title: 复盘文档
+    card: team/10-chronicler.md
+    summary: 记录问题根因、改进项和交接信息，更新需求池。
+    handoff: [orchestrator, analyst, releaser]
+    stage: [8]
+    stage_label: 8 复盘；迭代入口；热修 H5 补记录
+    hotfix_stage: [H5]
+    gate: [G7]
+    gate_label: G7 交付
+    tool_filter: 读、写、搜索
+
+gates:
+  - id: G0B
+    name: 现状基线
+    gate_owner: reviewer
+    artifacts: [docs/00-context.md, docs/review-G0B.md]
+    checks:
+      - 技术栈和版本已记录
+      - 已记录构建、启动和测试的命令及实际结果。步骤受阻时已写明原因
+      - 关键模块和数据流已列出
+      - 部署方式和环境已记录
+      - 依赖风险与许可证已列出
+      - 隐式契约已识别
+      - 技术债热区已列出
+      - 现有测试基线记录实际结果。对拟修复的既有失败，独立评审核对复现证据和影响范围后，可将其纳入基线
+      - 现有文档已映射到团队工件
+      - 不可动清单已列出
+      - [自动] 现状基线含现有测试基线与不可动清单
+  - id: G0
+    name: 立项/变更立项
+    gate_owner: human_and_orchestrator
+    artifacts: [docs/00-brief.md]
+    checks:
+      - 目标、范围、干系人已确认
+      - 成功指标可判定
+      - 计划与预算已确认
+      - 人已确认立项或变更
+      - [自动] 项目章程含目标、范围、成功指标与主要风险
+  - id: G1
+    name: 需求
+    gate_owner: reviewer
+    artifacts: [docs/01-requirements.md, docs/review-G1.md]
+    checks:
+      - 每条需求有唯一 ID
+      - 每条需求有可执行验收标准
+      - 优先级有依据
+      - 非功能需求有数值指标
+      - 有不做清单
+      - [自动] 没有 TBD
+      - [自动] 需求文档含验收标准
+      - [自动] 评审报告结论为通过
+  - id: G2
+    name: 设计
+    gate_owner: reviewer
+    artifacts: [docs/02-design.md, docs/02-threat-model.md, docs/review-G2.md]
+    artifacts_brownfield: [docs/02-impact.md]
+    artifacts_ui: [docs/02-ux-flow.md, docs/02-ui-spec.md]
+    checks:
+      - 每条需求映射到模块
+      - 接口有输入、输出、错误码
+      - 数据模型有主键、索引、迁移与回滚方案
+      - 非功能指标可测量
+      - 有威胁模型
+      - 二次开发有影响分析
+      - 有降级和回滚方案
+      - 体验设计覆盖五种状态
+      - [自动] 设计文档含接口契约与降级回滚
+      - [自动] 设计用映射行覆盖全部 REQ 与 NFR，且不含未登记 ID
+      - [自动] 威胁模型存在
+      - [自动] 评审报告结论为通过
+  - id: G3
+    name: 代码
+    gate_owner: reviewer
+    artifacts: [docs/review-G3.md]
+    artifacts_ui: [docs/03-build-notes-frontend.md]
+    artifacts_backend: [docs/03-build-notes-backend.md]
+    artifacts_hotfix: [docs/review-G3.md]
+    artifacts_hotfix_any: [docs/03-build-notes-frontend.md, docs/03-build-notes-backend.md]
+    checks:
+      - 构建通过
+      - 单元测试通过
+      - 关键路径有测试
+      - 静态检查无高危
+      - 依赖扫描无高危漏洞
+      - 二次开发有特征测试
+      - 修改范围与影响分析一致
+      - 评审意见已关闭
+      - [自动] 构建说明含修改文件与构建
+      - [自动] 评审报告结论为通过
+    checks_quick:
+      - 本次改动的文件、目标行为和验收条件已记录
+      - 涉及的前端或后端有构建说明与实际验证结果
+      - 独立评审已关闭阻断问题
+      - [自动] 构建说明和通过的评审结论属于本次变更
+  - id: G4
+    name: 测试
+    gate_owner: reviewer
+    artifacts: [docs/04-test-report.md, docs/04-perf-report.md, docs/04-security-report.md, docs/review-G4.md]
+    artifacts_hotfix: [docs/04-test-report.md, docs/review-G4.md]
+    artifacts_hotfix_security: [docs/04-security-report.md]
+    artifacts_quick: [docs/04-test-report.md, docs/review-G4.md]
+    checks:
+      - 用例覆盖全部验收标准
+      - 回归基线通过
+      - 阻断缺陷为 0
+      - 性能有结论（小项目写入测试报告）
+      - 安全无未处置高危
+      - 遗留缺陷有结论
+      - [自动] 测试报告含用例与准出建议
+      - [自动] 测试报告用映射行覆盖全部 REQ，且不含未登记 ID
+      - [自动] 性能报告含用例、性能与准出建议
+      - [自动] 安全报告含用例、安全与准出建议
+      - [自动] 评审报告结论为通过
+    checks_quick:
+      - 本次验收条件已验证
+      - 受影响的旧功能回归通过
+      - 独立评审已确认验证范围与证据
+      - [自动] 本次变更的回归结果、准出结论和评审结论均通过
+    checks_hotfix:
+      - 修复后的故障场景验证通过
+      - 受影响模块的回归通过。报告记录范围、用例和实际结果
+      - 阻断缺陷为 0
+      - 有安全影响时，独立评审已核对本次热修的安全复核范围、证据和结论
+      - [自动] 热修安全影响已明确为有或无
+      - [自动] 有安全影响时，安全报告属于本次变更且准出结论为通过
+      - [自动] 测试报告含用例与准出建议
+      - [自动] 本次回归结果与准出结论均通过
+      - [自动] 评审报告结论为通过
+  - id: G5
+    name: 验证上线
+    gate_owner: human
+    approval_rule: non_production
+    approval_scope_field: 批准范围
+    approval_text_field: 批准原文
+    approval_fields: [批准人, 批准时间, 批准范围, 批准原文]
+    approval_artifact: docs/05-release.md
+    artifacts: [docs/05-release.md, docs/05-runbook.md]
+    artifacts_hotfix: [docs/05-release.md, docs/05-runbook.md, docs/08-hotfix.md]
+    checks:
+      - 有人批准验证上线（不涉及生产）
+      - 验证链路已跑通，无报错、无阻塞
+      - 回滚方案已验证
+      - 有运行手册（小项目写入发布计划）
+      - 监控与告警已验证
+      - 数据迁移在预发可回退
+      - 值班与公告已确认（验证环境）
+      - 未执行任何生产发布操作
+      - [自动] 发布计划含回滚、批准、迁移、告警与公告
+      - [自动] 人工批准记录完整
+  - id: G6
+    name: 运行
+    gate_owner: orchestrator
+    allow_na: true
+    artifacts: [docs/06-ops.md]
+    checks:
+      - 验证环境监控正常
+      - 验证环境告警有处理记录
+      - 验证环境容量有余量
+      - 数据库未明确为无时，验证至少一个核心表可恢复。核心表见设计文档
+      - [自动] 运维记录含监控、容量和告警
+      - [自动] 数据库未明确为无时，校验备份、恢复证据、行数和校验和
+  - id: G7
+    name: 复盘
+    gate_owner: human_and_orchestrator
+    artifacts: [docs/07-retro.md, docs/08-handover.md, docs/backlog.md]
+    artifacts_ui: [docs/manual/]
+    checks:
+      - 验证上线结论有数据支撑
+      - 每个问题有根因
+      - 改进项有负责人和期限
+      - 需求池已更新
+      - 交接文档已生成；有界面时用户手册已生成（小项目写入交接文档使用说明）
+      - [自动] 复盘含问题与根因、改进项
+      - [自动] 交接文档存在
+
+artifacts:
+  docs/00-brief.md: analyst
+  docs/00-context.md: architect
+  docs/01-requirements.md: analyst
+  docs/02-design.md: architect
+  docs/02-adr.md: architect
+  docs/02-impact.md: architect
+  docs/02-ux-flow.md: designer
+  docs/02-ui-spec.md: designer
+  docs/02-ux.md: designer
+  docs/02-threat-model.md: security
+  docs/03-build-notes-frontend.md: frontend
+  docs/03-build-notes-backend.md: backend
+  docs/04-test-report.md: functional-tester
+  docs/04-perf-report.md: performance-tester
+  docs/04-security-report.md: security
+  docs/05-release.md: releaser
+  docs/05-runbook.md: releaser
+  docs/06-ops.md: releaser
+  docs/07-retro.md: chronicler
+  docs/backlog.md: chronicler
+  docs/manual/: chronicler
+  docs/08-handover.md: chronicler
+  docs/08-hotfix.md: releaser
+  docs/review-G0B.md: reviewer
+  docs/review-G1.md: reviewer
+  docs/review-G2.md: reviewer
+  docs/review-G3.md: reviewer
+  docs/review-G4.md: reviewer
+  docs/cr/NNN-*.md: requester
+  docs/status.md: orchestrator
+
+optional_artifacts: [docs/02-adr.md, docs/cr/NNN-*.md, docs/status.md]
+
+routes:
+  - task: 写项目章程、需求规格、验收标准
+    agent: analyst
+  - task: 现状扫描、影响分析
+    agent: architect
+  - task: 写架构设计、接口契约、技术选型
+    agent: architect
+  - task: 任务流、五态设计、界面规范、文案
+    agent: designer
+  - task: 实现前端界面和交互
+    agent: frontend
+  - task: 实现服务、接口、数据
+    agent: backend
+  - task: 设计用例、执行功能测试、提缺陷
+    agent: functional-tester
+  - task: 写压测方案、执行性能测试
+    agent: performance-tester
+  - task: 小项目性能证据交接、合并验证报告
+    agent: performance-tester 提交证据 → functional-tester 汇总
+  - task: 威胁建模、防御性代码审查、依赖与配置检查
+    agent: security
+  - task: 独立评审、给门结论
+    agent: reviewer
+  - task: 验证上线、回滚演练、验证环境监控和故障处理
+    agent: releaser
+  - task: 热修定级
+    agent: orchestrator（functional-tester 复现）
+  - task: 热修止损演练、记录人工处置结论
+    agent: releaser
+  - task: 热修最小修复
+    agent: frontend 或 backend（按模块）
+  - task: 热修回归
+    agent: functional-tester
+  - task: 有安全影响的热修复核
+    agent: security 提交结论 → reviewer 核对
+  - task: 热修补记、汇总、结项核对
+    agent: chronicler 补记 → releaser 汇总 → orchestrator 核对
+  - task: 复盘、改进项、文档归档
+    agent: chronicler
+  - task: 分派任务、检查门、升级
+    agent: orchestrator

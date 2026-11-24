@@ -1,0 +1,10 @@
+# 运行时工件由团队生成，不提交
+docs/
+
+# Python
+__pycache__/
+*.pyc
+
+# 操作系统
+.DS_Store
+Thumbs.db

@@ -1,0 +1,22 @@
+{
+  "name": "sdlc-agent-team-marketplace",
+  "owner": {
+    "name": "sdlc-agent-team contributors"
+  },
+  "plugins": [
+    {
+      "name": "sdlc-agent-team",
+      "source": "./plugins/sdlc-agent-team",
+      "description": "软件交付专家团。支持轻量变更、新建、二次开发、迭代和热修。",
+      "version": "1.0.0",
+      "category": "workflow",
+      "keywords": [
+        "sdlc",
+        "agents",
+        "gates",
+        "brownfield",
+        "hotfix"
+      ]
+    }
+  ]
+}

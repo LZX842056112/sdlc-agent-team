@@ -1,0 +1,16 @@
+{
+  "name": "sdlc-agent-team",
+  "version": "1.0.0",
+  "description": "12 角色软件交付团队。覆盖需求、设计、开发、测试、安全、评审、发布和复盘。支持热修、轻量变更、迭代、二次开发、新建。",
+  "author": {
+    "name": "sdlc-agent-team contributors"
+  },
+  "license": "MIT",
+  "keywords": [
+    "sdlc",
+    "agents",
+    "gates",
+    "brownfield",
+    "hotfix"
+  ]
+}
